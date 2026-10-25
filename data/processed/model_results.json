@@ -1,0 +1,112 @@
+{
+  "train_rows": 7364,
+  "test_rows": 4941,
+  "train_period": "Jan 2024 - Jun 2025",
+  "test_period": "Jul 2025 - Apr 2026",
+  "base_rate": 0.04148957700870269,
+  "auc": 0.7578717246209624,
+  "auc_ratio_only": 0.7277207275873435,
+  "auc_gbm": 0.7441233726104153,
+  "brier": 0.03767321783599127,
+  "rule_share_flagged": 0.22647237401335762,
+  "rule_capture": 0.5463414634146342,
+  "rule_precision": 0.10008936550491511,
+  "model_capture": 0.5853658536585366,
+  "model_precision": 0.10723860589812333,
+  "lift": [
+    {
+      "decile": 1,
+      "tenancies": 494,
+      "actual_rate": 0.1720647773279352,
+      "predicted_rate": 0.17387162869398765
+    },
+    {
+      "decile": 2,
+      "tenancies": 494,
+      "actual_rate": 0.06072874493927125,
+      "predicted_rate": 0.06041232716196628
+    },
+    {
+      "decile": 3,
+      "tenancies": 494,
+      "actual_rate": 0.03441295546558704,
+      "predicted_rate": 0.04396668488247868
+    },
+    {
+      "decile": 4,
+      "tenancies": 494,
+      "actual_rate": 0.0465587044534413,
+      "predicted_rate": 0.03701219253682618
+    },
+    {
+      "decile": 5,
+      "tenancies": 494,
+      "actual_rate": 0.04048582995951417,
+      "predicted_rate": 0.03075072207905141
+    },
+    {
+      "decile": 6,
+      "tenancies": 494,
+      "actual_rate": 0.010121457489878543,
+      "predicted_rate": 0.025823455928408325
+    },
+    {
+      "decile": 7,
+      "tenancies": 494,
+      "actual_rate": 0.012145748987854251,
+      "predicted_rate": 0.021786677166059497
+    },
+    {
+      "decile": 8,
+      "tenancies": 494,
+      "actual_rate": 0.01417004048582996,
+      "predicted_rate": 0.018162552984025856
+    },
+    {
+      "decile": 9,
+      "tenancies": 494,
+      "actual_rate": 0.016194331983805668,
+      "predicted_rate": 0.013983666707858161
+    },
+    {
+      "decile": 10,
+      "tenancies": 495,
+      "actual_rate": 0.00808080808080808,
+      "predicted_rate": 0.007340429591801834
+    }
+  ],
+  "odds_ratios": [
+    {
+      "feature": "reference outcome Pass with conditions",
+      "odds_ratio": 2.7294117413874606
+    },
+    {
+      "feature": "rent to income capped",
+      "odds_ratio": 2.4519598590600924
+    },
+    {
+      "feature": "employment type Self-employed",
+      "odds_ratio": 1.6630144232751933
+    },
+    {
+      "feature": "monthly rent",
+      "odds_ratio": 1.0081575430861174
+    },
+    {
+      "feature": "reference outcome Pass with guarantor",
+      "odds_ratio": 0.8046061739214911
+    },
+    {
+      "feature": "employment type Employed",
+      "odds_ratio": 0.7666201117073214
+    },
+    {
+      "feature": "employment type Student",
+      "odds_ratio": 0.33310479984162067
+    },
+    {
+      "feature": "has guarantor True",
+      "odds_ratio": 0.2602536915458133
+    }
+  ]
+}

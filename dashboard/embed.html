@@ -1,0 +1,511 @@
+<title>Lettings Pulse</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="UK lettings operations dashboard: referencing turnaround, rents, arrears risk and data quality. Python, SQL (DuckDB), scikit-learn.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky section nav over a single scrolling column of panels; summary tiles first, detail below. */
+:root {
+  --bg: #f5f7f6;
+  --panel: #ffffff;
+  --ink: #15201c;
+  --ink-2: #4a5852;
+  --ink-3: #75837d;
+  --line: #dde4e0;
+  --grid: #e9eeeb;
+  --accent: #1d6f63;       /* UI accent: front-door green */
+  --accent-soft: #e2f0ec;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --good: #2f7d32; --good-soft: #e5f2e5;
+  --warn: #a86300; --warn-soft: #fbf0dc;
+  --bad: #c0392b;  --bad-soft: #fbe6e3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101614; --panel: #18201d; --ink: #eef3f0; --ink-2: #b9c6c0; --ink-3: #8c9a94;
+    --line: #2a3531; --grid: #232d29; --accent: #5fbfae; --accent-soft: #1d332e;
+    --series-1: #3987e5; --series-2: #d95926;
+    --good: #6cc070; --good-soft: #1c2f1d; --warn: #e3a646; --warn-soft: #33281a;
+    --bad: #ef7a6c; --bad-soft: #3a201d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101614; --panel: #18201d; --ink: #eef3f0; --ink-2: #b9c6c0; --ink-3: #8c9a94;
+  --line: #2a3531; --grid: #232d29; --accent: #5fbfae; --accent-soft: #1d332e;
+  --series-1: #3987e5; --series-2: #d95926;
+  --good: #6cc070; --good-soft: #1c2f1d; --warn: #e3a646; --warn-soft: #33281a;
+  --bad: #ef7a6c; --bad-soft: #3a201d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+h3 { font-size: 1.02rem; font-weight: 500; font-family: var(--font-body); }
+p { margin: 0; }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, select:focus-visible, th:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+header.top { background: var(--panel); border-bottom: 1px solid var(--line); }
+header.top .wrap { padding-block: 28px 22px; display: grid; gap: 14px; }
+.lede { color: var(--ink-2); max-width: 70ch; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--ink); border: 1px solid var(--line); white-space: nowrap; }
+.chip.warn { background: var(--warn-soft); }
+.chip.bad { background: var(--bad-soft); }
+.chip.good { background: var(--good-soft); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.chip.warn .dot { color: var(--warn); } .chip.bad .dot { color: var(--bad); } .chip.good .dot { color: var(--good); }
+
+nav.sections { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+nav.sections .wrap { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+nav.sections a { padding: 11px 12px; text-decoration: none; color: var(--ink-2); font-size: 0.88rem; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; }
+nav.sections a:hover { color: var(--ink); border-bottom-color: var(--line); }
+
+main { display: grid; gap: 40px; padding-block: 28px 64px; }
+section { display: grid; gap: 16px; scroll-margin-top: 60px; }
+.sec-head { display: grid; gap: 6px; }
+.sec-head p { color: var(--ink-2); max-width: 75ch; }
+
+.grid { display: grid; gap: 16px; }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) { .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .g3, .g2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 440px) { .g4 { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.panel-head .sub { color: var(--ink-3); font-size: 0.82rem; }
+
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+.tile .val { font-family: var(--font-display); font-size: 2rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .delta { font-size: 0.82rem; color: var(--ink-2); }
+.up-good { color: var(--good); } .up-bad { color: var(--bad); }
+
+.insight { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; color: var(--ink); font-size: 0.92rem; }
+.insight b { font-weight: 600; }
+.insights { display: grid; gap: 10px; }
+
+.chart { width: 100%; position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--ink-3); font-family: var(--font-mono); font-size: 11px; }
+.chart .lbl { fill: var(--ink-2); font-family: var(--font-body); font-size: 12px; }
+.chart .val-lbl { fill: var(--ink); font-size: 11.5px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--ink-2); }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: middle; }
+.legend .dash::before { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
+
+#tip { position: fixed; pointer-events: none; z-index: 20; background: var(--ink); color: var(--bg); padding: 7px 10px; border-radius: 6px; font-size: 0.78rem; line-height: 1.4; max-width: 240px; opacity: 0; transition: opacity .08s; font-family: var(--font-body); }
+#tip b { font-family: var(--font-mono); font-weight: 500; }
+
+.tbl-wrap { overflow-x: auto; }
+.tbl-wrap.tall { max-height: 520px; overflow-y: auto; }
+.tbl-wrap.tall th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th[aria-sort="ascending"]::after { content: " ▲"; } th[aria-sort="descending"]::after { content: " ▼"; }
+td.n, th.n { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+tr:hover td { background: var(--accent-soft); }
+.bar-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.bar-cell i { display: block; height: 6px; border-radius: 3px; background: var(--series-1); }
+
+select, button.seg { font: inherit; font-size: 0.85rem; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+.segs { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+button.seg { border: 0; border-radius: 0; cursor: pointer; background: transparent; }
+button.seg[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.compare > div { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 2px; }
+.compare .big { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; }
+.small { font-size: 0.82rem; color: var(--ink-2); }
+.checks { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.checks li { display: flex; gap: 8px; align-items: baseline; font-size: 0.88rem; }
+.checks li::before { content: "✓"; color: var(--good); font-weight: 700; }
+
+.method { display: grid; gap: 14px; }
+.method dl { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px 18px; margin: 0; }
+.method dt { font-weight: 600; font-size: 0.9rem; }
+.method dd { margin: 0; color: var(--ink-2); max-width: 75ch; font-size: 0.92rem; }
+@media (max-width: 640px) { .method dl { grid-template-columns: minmax(0, 1fr); } .method dd { margin-bottom: 8px; } }
+footer { border-top: 1px solid var(--line); color: var(--ink-3); font-size: 0.82rem; }
+footer .wrap { padding-block: 20px; display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="eyebrow">UK lettings operations · Portfolio project</div>
+    <h1>Lettings Pulse</h1>
+    <p class="lede">How fast are tenants referenced, where are rents heading, and which new tenancies are likely to fall into arrears? An end-to-end analysis of <span class="num" id="h-apps">–</span> tenancy applications, <span class="num" id="h-ten">–</span> tenancies and <span class="num" id="h-pay">–</span> rent payments across <span class="num" id="h-ag">–</span> letting agents, built with Python, SQL and a validated risk model.</p>
+    <div class="meta">
+      <span class="chip">Data: Jan 2024 – <span id="h-to">–</span></span>
+      <span class="chip">Python · DuckDB SQL · scikit-learn</span>
+      <span class="chip good"><span class="dot"></span><span id="h-tests">–</span> automated checks passing</span>
+      <span class="chip warn"><span class="dot"></span>Synthetic data, realistic by design (see Method)</span>
+    </div>
+  </div>
+</header>
+<nav class="sections" aria-label="Sections">
+  <div class="wrap">
+    <a href="#overview">Overview</a><a href="#referencing">Referencing</a><a href="#rents">Rents</a>
+    <a href="#arrears">Arrears risk</a><a href="#quality">Data quality</a><a href="#agents">Agents</a><a href="#method">Method</a>
+  </div>
+</nav>
+
+<div class="wrap">
+<main>
+  <section id="overview">
+    <div class="sec-head"><div class="eyebrow">Overview · last 12 months vs the 12 before</div><h2>Key metrics</h2></div>
+    <div class="grid g4" id="tiles"></div>
+    <div class="grid g2">
+      <div class="panel">
+        <div class="panel-head"><h3>Applications per month</h3><span class="sub">Seasonal peak each summer</span></div>
+        <div class="chart" id="c-apps"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Referencing turnaround (hours)</h3><span class="sub">Median and 90th percentile</span></div>
+        <div class="legend"><span style="--c:var(--series-1)">Median</span><span class="dash" style="--c:var(--ink-3)">90th percentile</span></div>
+        <div class="chart" id="c-turn"></div>
+      </div>
+    </div>
+    <div class="panel"><div class="eyebrow">What the data says</div><div class="insights" id="insights"></div></div>
+  </section>
+
+  <section id="referencing">
+    <div class="sec-head"><div class="eyebrow">Referencing</div><h2>Where applications slow down or drop out</h2>
+      <p>Funnel for applications submitted Sep 2025 – Aug 2026, so every application has had at least a month to complete.</p></div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-head"><h3>Application funnel</h3><span class="sub">Share of submitted applications</span></div><div class="chart" id="c-funnel"></div></div>
+      <div class="panel"><div class="panel-head"><h3>Median turnaround by employment type</h3><span class="sub">Hours, all applications</span></div><div class="chart" id="c-seg"></div>
+        <p class="small" id="seg-note"></p></div>
+    </div>
+  </section>
+
+  <section id="rents">
+    <div class="sec-head"><div class="eyebrow">Rents</div><h2>Median rent on new tenancies by region</h2>
+      <p>Year-on-year change compares new lets in Oct 2025 – Sep 2026 with the 12 months before. Regions with fewer than 100 lets are flagged, because a median from a small sample moves a lot by chance.</p></div>
+    <div class="grid g2">
+      <div class="panel"><div class="tbl-wrap"><table id="t-rent"></table></div></div>
+      <div class="panel">
+        <div class="panel-head"><h3>Quarterly median rent</h3><select id="region-pick" aria-label="Region"></select></div>
+        <div class="legend"><span id="lg-region" style="--c:var(--series-1)">Region</span><span class="dash" style="--c:var(--ink-3)">All regions</span></div>
+        <div class="chart" id="c-rentq"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="arrears">
+    <div class="sec-head"><div class="eyebrow">Arrears risk</div><h2>Which new tenancies fall behind on rent?</h2>
+      <p><b>Early arrears</b> = two or more late or missed payments in a tenancy's first six months. Only tenancies with six months of history are counted.</p></div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-head"><h3>Early-arrears rate by rent-to-income ratio</h3><span class="sub">Annual rent ÷ annual income</span></div><div class="chart" id="c-afford"></div>
+        <p class="small">The industry's "30x rule" (income at least 30 × monthly rent) equals a 40% ratio.</p></div>
+      <div class="panel"><div class="panel-head"><h3>Risk model vs the 30x rule</h3><span class="sub" id="m-period"></span></div>
+        <div class="compare" id="m-compare"></div>
+        <div class="grid g3" id="m-stats"></div>
+        <p class="small" id="m-note"></p></div>
+    </div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-head"><h3>Actual vs predicted arrears, by risk decile</h3><span class="sub">Unseen test tenancies; 1 = highest risk</span></div>
+        <div class="legend"><span style="--c:var(--series-1)">Actual rate</span><span class="dash" style="--c:var(--series-2)">Predicted rate</span></div>
+        <div class="chart" id="c-lift"></div></div>
+      <div class="panel"><div class="panel-head"><h3>What drives the score</h3><span class="sub">Odds ratio; above 1 raises risk</span></div><div class="chart" id="c-odds"></div>
+        <p class="small">Region was left out of the model on purpose: its effects were unstable between periods, and location can act as a proxy for protected characteristics.</p></div>
+    </div>
+  </section>
+
+  <section id="quality">
+    <div class="sec-head"><div class="eyebrow">Data quality</div><h2>What was wrong with the raw data, and what was done</h2>
+      <p>Checks run in SQL on the raw tables before any analysis. Every correction is flagged in the cleaned tables so it can be audited.</p></div>
+    <div class="grid g3" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr)">
+      <div class="panel"><div class="tbl-wrap"><table id="t-dq"></table></div></div>
+      <div class="panel"><h3>Automated validation tests</h3><p class="small">The pipeline stops if any of these fail.</p><ul class="checks" id="tests"></ul></div>
+    </div>
+  </section>
+
+  <section id="agents">
+    <div class="sec-head"><div class="eyebrow">Agents</div><h2>Letting-agent league table</h2>
+      <p>Applications Sep 2025 – Aug 2026, agents with 80+ applications. Click a column to sort.</p></div>
+    <div class="panel"><div class="tbl-wrap tall"><table id="t-agency"></table></div></div>
+  </section>
+
+  <section id="method">
+    <div class="sec-head"><div class="eyebrow">Method</div><h2>How this was built</h2></div>
+    <div class="panel method"><dl>
+      <dt>Questions</dt><dd>1. How long does referencing take, and what slows it down? 2. How are rents moving by region? 3. Can we spot tenancies at risk of early arrears better than the 30x affordability rule? 4. Can the numbers be trusted?</dd>
+      <dt>Data</dt><dd>Real referencing and payment records are personal and confidential, so a reproducible simulator (fixed seed) generates a lettings platform's data: 80 agents, ~26k applications, ~16k tenancies, ~150k rent payments. Regional rent levels are loosely calibrated to published ONS private-rent averages; seasonality, slower self-employed referencing and affordability-driven arrears are built in. Real-world mess is planted on purpose: duplicates, missing and mis-keyed incomes, bad rents, inconsistent region names and impossible timestamps.</dd>
+      <dt>Tools</dt><dd>Python and pandas for generation; DuckDB SQL for data-quality checks, a staging layer and reusable marts; scikit-learn for the model; a dependency-free HTML/SVG dashboard published on GitHub Pages, plus a Streamlit version for interactive exploration.</dd>
+      <dt>Quality checks</dt><dd>11 data-quality rules on raw data, 9 automated validation tests (reconciliation between marts and fact tables, funnel only narrowing, legal deposit cap, model beating random on unseen data). Right-censoring is flagged: the most recent month's conversion rate is low only because those applications have not had time to become tenancies.</dd>
+      <dt>Model</dt><dd>Logistic regression chosen for interpretability. Time-based split (train on older tenancies, test on newer ones) to avoid leaking future behaviour. A gradient-boosting challenger scored lower on the test period, so the simpler model was kept. Judged against the business rule at the same flag volume, not just on AUC.</dd>
+      <dt>Use of AI</dt><dd>An AI assistant helped scaffold code and draft documentation. Every output was checked: SQL results reconciled against pandas, model metrics re-derived, and synthetic behaviours checked against expectations. An early version showed 69% of students in arrears; investigating showed the simulator ignored guarantors, so it was fixed. Judgement calls (the arrears definition, the time split, excluding region, flagging small samples) were made by hand.</dd>
+      <dt>Next steps</dt><dd>Swap in real ONS Price Index of Private Rents data for the rent view; add confidence intervals to small-sample medians; monitor model calibration monthly; test whether faster referencing raises conversion.</dd>
+    </dl></div>
+  </section>
+</main>
+</div>
+<footer><div class="wrap"><span>Lettings Pulse · built by Hamad Ur Rehman</span><span>Generated <span id="gen">–</span> · synthetic data for demonstration</span></div></footer>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = {"generated":"24 Oct 2026","data_to":"30 Sep 2026","headline":{"raw_rows":220075,"applications":25975,"tenancies":15700,"payments":152008,"agencies":80,"dq_rows_fixed_or_removed":1127},"monthly":[{"month":"2024-01-01","applications":581,"pass_rate":0.8029,"median_turnaround_h":41.425,"p90_turnaround_h":97.41,"conversion_rate":0.6024,"tenancies_started":132,"median_new_rent":1090.0,"late_payment_rate":0.0227,"rent_missed_gbp":1040.0},{"month":"2024-02-01","applications":552,"pass_rate":0.8365,"median_turnaround_h":40.475,"p90_turnaround_h":89.4867,"conversion_rate":0.6449,"tenancies_started":322,"median_new_rent":1065.0,"late_payment_rate":0.0441,"rent_missed_gbp":6675.0},{"month":"2024-03-01","applications":633,"pass_rate":0.8044,"median_turnaround_h":38.1667,"p90_turnaround_h":95.0833,"conversion_rate":0.6035,"tenancies_started":375,"median_new_rent":1110.0,"late_payment_rate":0.035,"rent_missed_gbp":3090.0},{"month":"2024-04-01","applications":622,"pass_rate":0.7966,"median_turnaround_h":39.6833,"p90_turnaround_h":89.1083,"conversion_rate":0.5997,"tenancies_started":367,"median_new_rent":1010.0,"late_payment_rate":0.0368,"rent_missed_gbp":8335.0},{"month":"2024-05-01","applications":753,"pass_rate":0.8112,"median_turnaround_h":36.45,"p90_turnaround_h":88.4833,"conversion_rate":0.6096,"tenancies_started":393,"median_new_rent":1085.0,"late_payment_rate":0.0453,"rent_missed_gbp":23560.0},{"month":"2024-06-01","applications":755,"pass_rate":0.8191,"median_turnaround_h":38.0167,"p90_turnaround_h":95.0333,"conversion_rate":0.6291,"tenancies_started":461,"median_new_rent":1080.0,"late_payment_rate":0.0463,"rent_missed_gbp":28840.0},{"month":"2024-07-01","applications":922,"pass_rate":0.7979,"median_turnaround_h":42.2833,"p90_turnaround_h":101.26,"conversion_rate":0.6323,"tenancies_started":533,"median_new_rent":1100.0,"late_payment_rate":0.0442,"rent_missed_gbp":21750.0},{"month":"2024-08-01","applications":917,"pass_rate":0.7975,"median_turnaround_h":42.65,"p90_turnaround_h":102.5133,"conversion_rate":0.6096,"tenancies_started":548,"median_new_rent":1025.0,"late_payment_rate":0.05,"rent_missed_gbp":32275.0},{"month":"2024-09-01","applications":869,"pass_rate":0.8034,"median_turnaround_h":44.0667,"p90_turnaround_h":99.2833,"conversion_rate":0.626,"tenancies_started":545,"median_new_rent":1110.0,"late_payment_rate":0.0455,"rent_missed_gbp":40670.0},{"month":"2024-10-01","applications":766,"pass_rate":0.8282,"median_turnaround_h":37.4167,"p90_turnaround_h":91.6583,"conversion_rate":0.6358,"tenancies_started":542,"median_new_rent":1132.5,"late_payment_rate":0.0453,"rent_missed_gbp":39260.0},{"month":"2024-11-01","applications":624,"pass_rate":0.8135,"median_turnaround_h":37.975,"p90_turnaround_h":95.2717,"conversion_rate":0.6074,"tenancies_started":438,"median_new_rent":1155.0,"late_payment_rate":0.0538,"rent_missed_gbp":49235.0},{"month":"2024-12-01","applications":541,"pass_rate":0.8158,"median_turnaround_h":52.45,"p90_turnaround_h":125.7133,"conversion_rate":0.6377,"tenancies_started":386,"median_new_rent":1095.0,"late_payment_rate":0.0498,"rent_missed_gbp":51630.0},{"month":"2025-01-01","applications":648,"pass_rate":0.7835,"median_turnaround_h":37.075,"p90_turnaround_h":92.4117,"conversion_rate":0.5988,"tenancies_started":379,"median_new_rent":1200.0,"late_payment_rate":0.0723,"rent_missed_gbp":106730.0},{"month":"2025-02-01","applications":544,"pass_rate":0.8137,"median_turnaround_h":40.1833,"p90_turnaround_h":98.98,"conversion_rate":0.625,"tenancies_started":332,"median_new_rent":1117.5,"late_payment_rate":0.0566,"rent_missed_gbp":70725.0},{"month":"2025-03-01","applications":670,"pass_rate":0.8195,"median_turnaround_h":37.7583,"p90_turnaround_h":97.1333,"conversion_rate":0.6552,"tenancies_started":396,"median_new_rent":1130.0,"late_payment_rate":0.051,"rent_missed_gbp":58870.0},{"month":"2025-04-01","applications":778,"pass_rate":0.7804,"median_turnaround_h":36.775,"p90_turnaround_h":85.8767,"conversion_rate":0.6015,"tenancies_started":436,"median_new_rent":1092.5,"late_payment_rate":0.0515,"rent_missed_gbp":70285.0},{"month":"2025-05-01","applications":772,"pass_rate":0.8014,"median_turnaround_h":37.6083,"p90_turnaround_h":91.4217,"conversion_rate":0.5946,"tenancies_started":473,"median_new_rent":1170.0,"late_payment_rate":0.0467,"rent_missed_gbp":56070.0},{"month":"2025-06-01","applications":828,"pass_rate":0.8127,"median_turnaround_h":28.6333,"p90_turnaround_h":69.7133,"conversion_rate":0.6268,"tenancies_started":468,"median_new_rent":1200.0,"late_payment_rate":0.049,"rent_missed_gbp":67660.0},{"month":"2025-07-01","applications":1061,"pass_rate":0.798,"median_turnaround_h":32.7,"p90_turnaround_h":87.11,"conversion_rate":0.6183,"tenancies_started":588,"median_new_rent":1157.5,"late_payment_rate":0.0523,"rent_missed_gbp":67035.0},{"month":"2025-08-01","applications":985,"pass_rate":0.8478,"median_turnaround_h":32.2167,"p90_turnaround_h":80.48,"conversion_rate":0.666,"tenancies_started":639,"median_new_rent":1130.0,"late_payment_rate":0.0481,"rent_missed_gbp":79310.0},{"month":"2025-09-01","applications":899,"pass_rate":0.801,"median_turnaround_h":33.2333,"p90_turnaround_h":77.62,"conversion_rate":0.6218,"tenancies_started":616,"median_new_rent":1170.0,"late_payment_rate":0.0465,"rent_missed_gbp":61185.0},{"month":"2025-10-01","applications":833,"pass_rate":0.8196,"median_turnaround_h":28.8333,"p90_turnaround_h":67.2667,"conversion_rate":0.6291,"tenancies_started":582,"median_new_rent":1230.0,"late_payment_rate":0.046,"rent_missed_gbp":53920.0},{"month":"2025-11-01","applications":703,"pass_rate":0.7774,"median_turnaround_h":30.275,"p90_turnaround_h":68.7583,"conversion_rate":0.5903,"tenancies_started":471,"median_new_rent":1120.0,"late_payment_rate":0.0466,"rent_missed_gbp":91320.0},{"month":"2025-12-01","applications":590,"pass_rate":0.8463,"median_turnaround_h":41.7333,"p90_turnaround_h":107.8833,"conversion_rate":0.6373,"tenancies_started":401,"median_new_rent":1135.0,"late_payment_rate":0.0479,"rent_missed_gbp":58715.0},{"month":"2026-01-01","applications":694,"pass_rate":0.808,"median_turnaround_h":30.5833,"p90_turnaround_h":68.6067,"conversion_rate":0.6081,"tenancies_started":390,"median_new_rent":1190.0,"late_payment_rate":0.0637,"rent_missed_gbp":104385.0},{"month":"2026-02-01","applications":662,"pass_rate":0.8032,"median_turnaround_h":29.375,"p90_turnaround_h":68.445,"conversion_rate":0.6178,"tenancies_started":409,"median_new_rent":1145.0,"late_payment_rate":0.0466,"rent_missed_gbp":69090.0},{"month":"2026-03-01","applications":788,"pass_rate":0.7846,"median_turnaround_h":29.1667,"p90_turnaround_h":70.64,"conversion_rate":0.6015,"tenancies_started":448,"median_new_rent":1207.5,"late_payment_rate":0.0497,"rent_missed_gbp":102215.0},{"month":"2026-04-01","applications":901,"pass_rate":0.808,"median_turnaround_h":27.9,"p90_turnaround_h":70.1667,"conversion_rate":0.6182,"tenancies_started":497,"median_new_rent":1185.0,"late_payment_rate":0.0479,"rent_missed_gbp":59390.0},{"month":"2026-05-01","applications":888,"pass_rate":0.8181,"median_turnaround_h":28.5167,"p90_turnaround_h":69.295,"conversion_rate":0.6261,"tenancies_started":537,"median_new_rent":1190.0,"late_payment_rate":0.0553,"rent_missed_gbp":92655.0},{"month":"2026-06-01","applications":957,"pass_rate":0.8078,"median_turnaround_h":29.3833,"p90_turnaround_h":70.5333,"conversion_rate":0.6196,"tenancies_started":598,"median_new_rent":1190.0,"late_payment_rate":0.0476,"rent_missed_gbp":71340.0},{"month":"2026-07-01","applications":1082,"pass_rate":0.8315,"median_turnaround_h":33.5083,"p90_turnaround_h":79.1467,"conversion_rate":0.658,"tenancies_started":630,"median_new_rent":1225.0,"late_payment_rate":0.0459,"rent_missed_gbp":85570.0},{"month":"2026-08-01","applications":1122,"pass_rate":0.8176,"median_turnaround_h":32.95,"p90_turnaround_h":79.1833,"conversion_rate":0.623,"tenancies_started":699,"median_new_rent":1180.0,"late_payment_rate":0.0448,"rent_missed_gbp":91535.0},{"month":"2026-09-01","applications":1035,"pass_rate":0.8007,"median_turnaround_h":32.6833,"p90_turnaround_h":77.0833,"conversion_rate":0.1807,"tenancies_started":669,"median_new_rent":1140.0,"late_payment_rate":0.0502,"rent_missed_gbp":69360.0}],"funnel":[{"step":1,"stage":"Applications submitted","n":10119},{"step":2,"stage":"Referencing completed","n":9501},{"step":3,"stage":"Referencing passed","n":7703},{"step":4,"stage":"Tenancy started","n":6296}],"region_rent":[{"region":"London","median_rent_last12m":2292.5,"median_rent_prior12m":2190.0,"lets_last12m":1414,"yoy":0.0468},{"region":"South East","median_rent_last12m":1410.0,"median_rent_prior12m":1445.0,"lets_last12m":463,"yoy":-0.0242},{"region":"East of England","median_rent_last12m":1355.0,"median_rent_prior12m":1290.0,"lets_last12m":379,"yoy":0.0504},{"region":"South West","median_rent_last12m":1290.0,"median_rent_prior12m":1250.0,"lets_last12m":414,"yoy":0.032},{"region":"Scotland","median_rent_last12m":1082.5,"median_rent_prior12m":1030.0,"lets_last12m":412,"yoy":0.051},{"region":"West Midlands","median_rent_last12m":1015.0,"median_rent_prior12m":945.0,"lets_last12m":406,"yoy":0.0741},{"region":"North West","median_rent_last12m":995.0,"median_rent_prior12m":950.0,"lets_last12m":1678,"yoy":0.0474},{"region":"East Midlands","median_rent_last12m":950.0,"median_rent_prior12m":940.0,"lets_last12m":511,"yoy":0.0106},{"region":"Yorkshire and The Humber","median_rent_last12m":890.0,"median_rent_prior12m":860.0,"lets_last12m":542,"yoy":0.0349},{"region":"Wales","median_rent_last12m":825.0,"median_rent_prior12m":790.0,"lets_last12m":87,"yoy":0.0443},{"region":"North East","median_rent_last12m":645.0,"median_rent_prior12m":727.5,"lets_last12m":25,"yoy":-0.1134}],"region_quarterly":[{"region":"East Midlands","quarter":"2024-01","median_rent":830.0,"lets":67},{"region":"East Midlands","quarter":"2024-04","median_rent":840.0,"lets":99},{"region":"East Midlands","quarter":"2024-07","median_rent":912.5,"lets":138},{"region":"East Midlands","quarter":"2024-10","median_rent":887.5,"lets":114},{"region":"East Midlands","quarter":"2025-01","median_rent":950.0,"lets":89},{"region":"East Midlands","quarter":"2025-04","median_rent":935.0,"lets":134},{"region":"East Midlands","quarter":"2025-07","median_rent":975.0,"lets":151},{"region":"East Midlands","quarter":"2025-10","median_rent":950.0,"lets":117},{"region":"East Midlands","quarter":"2026-01","median_rent":910.0,"lets":116},{"region":"East Midlands","quarter":"2026-04","median_rent":935.0,"lets":123},{"region":"East Midlands","quarter":"2026-07","median_rent":975.0,"lets":155},{"region":"East of England","quarter":"2024-01","median_rent":1222.5,"lets":54},{"region":"East of England","quarter":"2024-04","median_rent":1317.5,"lets":64},{"region":"East of England","quarter":"2024-07","median_rent":1257.5,"lets":86},{"region":"East of England","quarter":"2024-10","median_rent":1315.0,"lets":91},{"region":"East of England","quarter":"2025-01","median_rent":1205.0,"lets":80},{"region":"East of England","quarter":"2025-04","median_rent":1295.0,"lets":97},{"region":"East of England","quarter":"2025-07","median_rent":1305.0,"lets":113},{"region":"East of England","quarter":"2025-10","median_rent":1325.0,"lets":97},{"region":"East of England","quarter":"2026-01","median_rent":1430.0,"lets":67},{"region":"East of England","quarter":"2026-04","median_rent":1455.0,"lets":100},{"region":"East of England","quarter":"2026-07","median_rent":1280.0,"lets":115},{"region":"London","quarter":"2024-01","median_rent":2147.5,"lets":178},{"region":"London","quarter":"2024-04","median_rent":2070.0,"lets":255},{"region":"London","quarter":"2024-07","median_rent":2112.5,"lets":330},{"region":"London","quarter":"2024-10","median_rent":2155.0,"lets":309},{"region":"London","quarter":"2025-01","median_rent":2200.0,"lets":253},{"region":"London","quarter":"2025-04","median_rent":2190.0,"lets":315},{"region":"London","quarter":"2025-07","median_rent":2205.0,"lets":394},{"region":"London","quarter":"2025-10","median_rent":2237.5,"lets":336},{"region":"London","quarter":"2026-01","median_rent":2270.0,"lets":264},{"region":"London","quarter":"2026-04","median_rent":2320.0,"lets":367},{"region":"London","quarter":"2026-07","median_rent":2330.0,"lets":447},{"region":"North East","quarter":"2024-01","median_rent":425.0,"lets":1},{"region":"North East","quarter":"2024-04","median_rent":600.0,"lets":5},{"region":"North East","quarter":"2024-07","median_rent":850.0,"lets":3},{"region":"North East","quarter":"2024-10","median_rent":880.0,"lets":5},{"region":"North East","quarter":"2025-01","median_rent":717.5,"lets":2},{"region":"North East","quarter":"2025-04","median_rent":807.5,"lets":4},{"region":"North East","quarter":"2025-07","median_rent":670.0,"lets":15},{"region":"North East","quarter":"2025-10","median_rent":695.0,"lets":7},{"region":"North East","quarter":"2026-01","median_rent":645.0,"lets":7},{"region":"North East","quarter":"2026-04","median_rent":517.5,"lets":4},{"region":"North East","quarter":"2026-07","median_rent":575.0,"lets":7},{"region":"North West","quarter":"2024-01","median_rent":910.0,"lets":218},{"region":"North West","quarter":"2024-04","median_rent":875.0,"lets":337},{"region":"North West","quarter":"2024-07","median_rent":915.0,"lets":466},{"region":"North West","quarter":"2024-10","median_rent":935.0,"lets":384},{"region":"North West","quarter":"2025-01","median_rent":930.0,"lets":289},{"region":"North West","quarter":"2025-04","median_rent":940.0,"lets":333},{"region":"North West","quarter":"2025-07","median_rent":977.5,"lets":482},{"region":"North West","quarter":"2025-10","median_rent":995.0,"lets":383},{"region":"North West","quarter":"2026-01","median_rent":970.0,"lets":325},{"region":"North West","quarter":"2026-04","median_rent":1010.0,"lets":444},{"region":"North West","quarter":"2026-07","median_rent":1005.0,"lets":526},{"region":"Scotland","quarter":"2024-01","median_rent":1005.0,"lets":59},{"region":"Scotland","quarter":"2024-04","median_rent":1005.0,"lets":88},{"region":"Scotland","quarter":"2024-07","median_rent":980.0,"lets":113},{"region":"Scotland","quarter":"2024-10","median_rent":955.0,"lets":79},{"region":"Scotland","quarter":"2025-01","median_rent":1085.0,"lets":54},{"region":"Scotland","quarter":"2025-04","median_rent":1037.5,"lets":90},{"region":"Scotland","quarter":"2025-07","median_rent":1037.5,"lets":128},{"region":"Scotland","quarter":"2025-10","median_rent":1025.0,"lets":77},{"region":"Scotland","quarter":"2026-01","median_rent":1142.5,"lets":92},{"region":"Scotland","quarter":"2026-04","median_rent":1095.0,"lets":99},{"region":"Scotland","quarter":"2026-07","median_rent":1062.5,"lets":144},{"region":"South East","quarter":"2024-01","median_rent":1305.0,"lets":67},{"region":"South East","quarter":"2024-04","median_rent":1250.0,"lets":89},{"region":"South East","quarter":"2024-07","median_rent":1335.0,"lets":111},{"region":"South East","quarter":"2024-10","median_rent":1432.5,"lets":102},{"region":"South East","quarter":"2025-01","median_rent":1432.5,"lets":102},{"region":"South East","quarter":"2025-04","median_rent":1542.5,"lets":88},{"region":"South East","quarter":"2025-07","median_rent":1395.0,"lets":126},{"region":"South East","quarter":"2025-10","median_rent":1460.0,"lets":94},{"region":"South East","quarter":"2026-01","median_rent":1390.0,"lets":106},{"region":"South East","quarter":"2026-04","median_rent":1450.0,"lets":123},{"region":"South East","quarter":"2026-07","median_rent":1400.0,"lets":140},{"region":"South West","quarter":"2024-01","median_rent":1170.0,"lets":54},{"region":"South West","quarter":"2024-04","median_rent":1207.5,"lets":70},{"region":"South West","quarter":"2024-07","median_rent":1240.0,"lets":92},{"region":"South West","quarter":"2024-10","median_rent":1205.0,"lets":94},{"region":"South West","quarter":"2025-01","median_rent":1247.5,"lets":64},{"region":"South West","quarter":"2025-04","median_rent":1245.0,"lets":77},{"region":"South West","quarter":"2025-07","median_rent":1305.0,"lets":121},{"region":"South West","quarter":"2025-10","median_rent":1310.0,"lets":87},{"region":"South West","quarter":"2026-01","median_rent":1350.0,"lets":75},{"region":"South West","quarter":"2026-04","median_rent":1250.0,"lets":105},{"region":"South West","quarter":"2026-07","median_rent":1280.0,"lets":147},{"region":"Wales","quarter":"2024-01","median_rent":885.0,"lets":9},{"region":"Wales","quarter":"2024-04","median_rent":767.5,"lets":12},{"region":"Wales","quarter":"2024-07","median_rent":717.5,"lets":14},{"region":"Wales","quarter":"2024-10","median_rent":767.5,"lets":10},{"region":"Wales","quarter":"2025-01","median_rent":857.5,"lets":16},{"region":"Wales","quarter":"2025-04","median_rent":720.0,"lets":21},{"region":"Wales","quarter":"2025-07","median_rent":812.5,"lets":20},{"region":"Wales","quarter":"2025-10","median_rent":730.0,"lets":29},{"region":"Wales","quarter":"2026-01","median_rent":740.0,"lets":12},{"region":"Wales","quarter":"2026-04","median_rent":930.0,"lets":22},{"region":"Wales","quarter":"2026-07","median_rent":830.0,"lets":24},{"region":"West Midlands","quarter":"2024-01","median_rent":920.0,"lets":50},{"region":"West Midlands","quarter":"2024-04","median_rent":920.0,"lets":81},{"region":"West Midlands","quarter":"2024-07","median_rent":910.0,"lets":109},{"region":"West Midlands","quarter":"2024-10","median_rent":935.0,"lets":63},{"region":"West Midlands","quarter":"2025-01","median_rent":1015.0,"lets":65},{"region":"West Midlands","quarter":"2025-04","median_rent":925.0,"lets":93},{"region":"West Midlands","quarter":"2025-07","median_rent":927.5,"lets":130},{"region":"West Midlands","quarter":"2025-10","median_rent":1020.0,"lets":93},{"region":"West Midlands","quarter":"2026-01","median_rent":945.0,"lets":77},{"region":"West Midlands","quarter":"2026-04","median_rent":975.0,"lets":107},{"region":"West Midlands","quarter":"2026-07","median_rent":1035.0,"lets":129},{"region":"Yorkshire and The Humber","quarter":"2024-01","median_rent":740.0,"lets":72},{"region":"Yorkshire and The Humber","quarter":"2024-04","median_rent":760.0,"lets":121},{"region":"Yorkshire and The Humber","quarter":"2024-07","median_rent":870.0,"lets":164},{"region":"Yorkshire and The Humber","quarter":"2024-10","median_rent":845.0,"lets":115},{"region":"Yorkshire and The Humber","quarter":"2025-01","median_rent":860.0,"lets":93},{"region":"Yorkshire and The Humber","quarter":"2025-04","median_rent":880.0,"lets":125},{"region":"Yorkshire and The Humber","quarter":"2025-07","median_rent":845.0,"lets":163},{"region":"Yorkshire and The Humber","quarter":"2025-10","median_rent":892.5,"lets":134},{"region":"Yorkshire and The Humber","quarter":"2026-01","median_rent":902.5,"lets":106},{"region":"Yorkshire and The Humber","quarter":"2026-04","median_rent":897.5,"lets":138},{"region":"Yorkshire and The Humber","quarter":"2026-07","median_rent":872.5,"lets":164}],"segment":[{"employment_type":"Employed","applications":18296,"median_turnaround_h":31.2333,"pass_rate":0.8101,"early_arrears_rate":0.0399},{"employment_type":"Self-employed","applications":3545,"median_turnaround_h":49.0,"pass_rate":0.834,"early_arrears_rate":0.068},{"employment_type":"Student","applications":2123,"median_turnaround_h":46.6333,"pass_rate":0.689,"early_arrears_rate":0.0461},{"employment_type":"Contractor","applications":2011,"median_turnaround_h":39.0,"pass_rate":0.8869,"early_arrears_rate":0.037}],"affordability":[{"rent_to_income_band":"1. <25%","tenancies":3071,"early_arrears_rate":0.012},{"rent_to_income_band":"2. 25-30%","tenancies":2418,"early_arrears_rate":0.0186},{"rent_to_income_band":"3. 30-35%","tenancies":2166,"early_arrears_rate":0.0319},{"rent_to_income_band":"4. 35-40% (30x rule limit)","tenancies":1686,"early_arrears_rate":0.0504},{"rent_to_income_band":"5. 40-45%","tenancies":1055,"early_arrears_rate":0.0825},{"rent_to_income_band":"6. 45%+","tenancies":1909,"early_arrears_rate":0.1131}],"agency":[{"agency_id":"AG063","agency_name":"Beacon Property","region":"West Midlands","applications":87,"median_turnaround_h":14.3167,"conversion_rate":0.6667,"early_arrears_rate":0.0645},{"agency_id":"AG029","agency_name":"Foxglove Lettings","region":"London","applications":90,"median_turnaround_h":17.2833,"conversion_rate":0.8222,"early_arrears_rate":0.0},{"agency_id":"AG017","agency_name":"Elm Homes","region":"West Midlands","applications":101,"median_turnaround_h":18.9083,"conversion_rate":0.7129,"early_arrears_rate":0.0909},{"agency_id":"AG014","agency_name":"Lantern Property","region":"Yorkshire and The Humber","applications":132,"median_turnaround_h":21.2833,"conversion_rate":0.7727,"early_arrears_rate":0.0},{"agency_id":"AG045","agency_name":"Meadow Lettings","region":"Yorkshire and The Humber","applications":207,"median_turnaround_h":21.9167,"conversion_rate":0.7101,"early_arrears_rate":0.0},{"agency_id":"AG073","agency_name":"Beacon Lettings","region":"Yorkshire and The Humber","applications":95,"median_turnaround_h":22.3833,"conversion_rate":0.8211,"early_arrears_rate":0.0},{"agency_id":"AG067","agency_name":"Willow Estates","region":"West Midlands","applications":115,"median_turnaround_h":24.1333,"conversion_rate":0.7565,"early_arrears_rate":0.0196},{"agency_id":"AG026","agency_name":"Brick & Key Estates","region":"London","applications":216,"median_turnaround_h":24.9417,"conversion_rate":0.7454,"early_arrears_rate":0.0482},{"agency_id":"AG077","agency_name":"Beacon Homes","region":"South East","applications":98,"median_turnaround_h":26.0167,"conversion_rate":0.6429,"early_arrears_rate":0.0},{"agency_id":"AG064","agency_name":"Ashford Property","region":"North West","applications":368,"median_turnaround_h":26.1167,"conversion_rate":0.7065,"early_arrears_rate":0.0423},{"agency_id":"AG011","agency_name":"Elm Residential","region":"East of England","applications":97,"median_turnaround_h":26.3,"conversion_rate":0.6907,"early_arrears_rate":0.0286},{"agency_id":"AG025","agency_name":"Harbour Estates","region":"North West","applications":351,"median_turnaround_h":26.3333,"conversion_rate":0.7635,"early_arrears_rate":0.0236},{"agency_id":"AG054","agency_name":"Parkside Estates","region":"East Midlands","applications":120,"median_turnaround_h":26.35,"conversion_rate":0.7583,"early_arrears_rate":0.0182},{"agency_id":"AG028","agency_name":"Willow Property","region":"London","applications":82,"median_turnaround_h":26.375,"conversion_rate":0.7683,"early_arrears_rate":0.027},{"agency_id":"AG009","agency_name":"Brick & Key Homes","region":"London","applications":220,"median_turnaround_h":26.4333,"conversion_rate":0.7364,"early_arrears_rate":0.0588},{"agency_id":"AG030","agency_name":"Northgate Estates","region":"North West","applications":240,"median_turnaround_h":26.6167,"conversion_rate":0.7042,"early_arrears_rate":0.0326},{"agency_id":"AG079","agency_name":"Foxglove Homes","region":"West Midlands","applications":133,"median_turnaround_h":26.6333,"conversion_rate":0.7293,"early_arrears_rate":0.102},{"agency_id":"AG041","agency_name":"Granite Residential","region":"East of England","applications":96,"median_turnaround_h":26.7333,"conversion_rate":0.7396,"early_arrears_rate":0.027},{"agency_id":"AG019","agency_name":"Harbour Homes","region":"Yorkshire and The Humber","applications":157,"median_turnaround_h":26.7583,"conversion_rate":0.5987,"early_arrears_rate":0.0},{"agency_id":"AG078","agency_name":"Elm Estates","region":"East Midlands","applications":150,"median_turnaround_h":26.8083,"conversion_rate":0.6333,"early_arrears_rate":0.0179},{"agency_id":"AG038","agency_name":"Meadow Estates","region":"South West","applications":92,"median_turnaround_h":28.85,"conversion_rate":0.6196,"early_arrears_rate":0.0},{"agency_id":"AG013","agency_name":"Foxglove Estates","region":"East Midlands","applications":90,"median_turnaround_h":29.2667,"conversion_rate":0.5444,"early_arrears_rate":0.0},{"agency_id":"AG023","agency_name":"Willow Residential","region":"Scotland","applications":353,"median_turnaround_h":29.4167,"conversion_rate":0.5722,"early_arrears_rate":0.0619},{"agency_id":"AG066","agency_name":"Meadow Homes","region":"West Midlands","applications":100,"median_turnaround_h":29.9833,"conversion_rate":0.65,"early_arrears_rate":0.0345},{"agency_id":"AG051","agency_name":"Parkside Property","region":"London","applications":399,"median_turnaround_h":30.1833,"conversion_rate":0.6241,"early_arrears_rate":0.0682},{"agency_id":"AG065","agency_name":"Harbour Residential","region":"East Midlands","applications":130,"median_turnaround_h":30.35,"conversion_rate":0.7385,"early_arrears_rate":0.0556},{"agency_id":"AG008","agency_name":"Kingsway Homes","region":"North West","applications":231,"median_turnaround_h":30.45,"conversion_rate":0.6883,"early_arrears_rate":0.0125},{"agency_id":"AG076","agency_name":"Crown Property","region":"South East","applications":123,"median_turnaround_h":30.6,"conversion_rate":0.5772,"early_arrears_rate":0.0278},{"agency_id":"AG035","agency_name":"Ashford Estates","region":"South West","applications":103,"median_turnaround_h":30.7833,"conversion_rate":0.7184,"early_arrears_rate":0.0938},{"agency_id":"AG036","agency_name":"Harbour Property","region":"London","applications":383,"median_turnaround_h":31.5,"conversion_rate":0.5901,"early_arrears_rate":0.0894},{"agency_id":"AG055","agency_name":"Lantern Residential","region":"North West","applications":90,"median_turnaround_h":31.7417,"conversion_rate":0.6111,"early_arrears_rate":0.0476},{"agency_id":"AG021","agency_name":"Northgate Lettings","region":"North West","applications":147,"median_turnaround_h":31.7667,"conversion_rate":0.5646,"early_arrears_rate":0.0732},{"agency_id":"AG044","agency_name":"Kingsway Estates","region":"South East","applications":95,"median_turnaround_h":31.7917,"conversion_rate":0.6632,"early_arrears_rate":0.0},{"agency_id":"AG022","agency_name":"Crown Estates","region":"East of England","applications":97,"median_turnaround_h":31.95,"conversion_rate":0.6289,"early_arrears_rate":0.0882},{"agency_id":"AG031","agency_name":"Willow Lettings","region":"North West","applications":133,"median_turnaround_h":32.4333,"conversion_rate":0.6692,"early_arrears_rate":0.0545},{"agency_id":"AG032","agency_name":"Parkside Homes","region":"Scotland","applications":260,"median_turnaround_h":33.125,"conversion_rate":0.6423,"early_arrears_rate":0.011},{"agency_id":"AG012","agency_name":"Ashford Residential","region":"Wales","applications":132,"median_turnaround_h":33.25,"conversion_rate":0.6591,"early_arrears_rate":0.0217},{"agency_id":"AG050","agency_name":"Lantern Lettings","region":"London","applications":90,"median_turnaround_h":33.2833,"conversion_rate":0.5667,"early_arrears_rate":0.0435},{"agency_id":"AG071","agency_name":"Oak Property","region":"London","applications":82,"median_turnaround_h":33.6667,"conversion_rate":0.622,"early_arrears_rate":0.0741},{"agency_id":"AG007","agency_name":"Northgate Property","region":"North West","applications":248,"median_turnaround_h":34.4333,"conversion_rate":0.5524,"early_arrears_rate":0.0833},{"agency_id":"AG043","agency_name":"Riverside Lettings","region":"North West","applications":98,"median_turnaround_h":35.25,"conversion_rate":0.551,"early_arrears_rate":0.0},{"agency_id":"AG010","agency_name":"Willow Homes","region":"South West","applications":127,"median_turnaround_h":35.775,"conversion_rate":0.5433,"early_arrears_rate":0.093},{"agency_id":"AG015","agency_name":"Riverside Homes","region":"South West","applications":233,"median_turnaround_h":36.3,"conversion_rate":0.4979,"early_arrears_rate":0.0172},{"agency_id":"AG001","agency_name":"Oak Homes","region":"North West","applications":138,"median_turnaround_h":36.8167,"conversion_rate":0.587,"early_arrears_rate":0.0833},{"agency_id":"AG040","agency_name":"Foxglove Property","region":"East Midlands","applications":237,"median_turnaround_h":37.1333,"conversion_rate":0.4979,"early_arrears_rate":0.0484},{"agency_id":"AG046","agency_name":"Kingsway Property","region":"Yorkshire and The Humber","applications":105,"median_turnaround_h":39.1167,"conversion_rate":0.6,"early_arrears_rate":0.0588},{"agency_id":"AG053","agency_name":"Crown Homes","region":"North West","applications":148,"median_turnaround_h":40.4333,"conversion_rate":0.4527,"early_arrears_rate":0.0227},{"agency_id":"AG070","agency_name":"Lantern Homes","region":"East of England","applications":86,"median_turnaround_h":40.5167,"conversion_rate":0.5233,"early_arrears_rate":0.0},{"agency_id":"AG034","agency_name":"Beacon Estates","region":"East of England","applications":92,"median_turnaround_h":41.9,"conversion_rate":0.5,"early_arrears_rate":0.0},{"agency_id":"AG052","agency_name":"Elm Property","region":"London","applications":375,"median_turnaround_h":42.4833,"conversion_rate":0.4427,"early_arrears_rate":0.011},{"agency_id":"AG047","agency_name":"Northgate Residential","region":"East of England","applications":87,"median_turnaround_h":42.65,"conversion_rate":0.4023,"early_arrears_rate":0.0},{"agency_id":"AG080","agency_name":"Foxglove Residential","region":"North West","applications":374,"median_turnaround_h":46.25,"conversion_rate":0.4465,"early_arrears_rate":0.0326},{"agency_id":"AG016","agency_name":"Granite Estates","region":"South East","applications":229,"median_turnaround_h":54.8417,"conversion_rate":0.441,"early_arrears_rate":0.1176}],"dq":[{"table_name":"applications","check_name":"Exact duplicate rows (double-submit)","failing_rows":208,"action":"Removed - kept first occurrence"},{"table_name":"applications","check_name":"Annual income missing","failing_rows":522,"action":"Kept for volume KPIs; excluded from affordability analysis and model"},{"table_name":"applications","check_name":"Annual income < \u00a34,000 (looks like a MONTHLY figure)","failing_rows":191,"action":"Corrected x12 and flagged (income_was_corrected = TRUE)"},{"table_name":"applications","check_name":"Monthly rent zero or negative","failing_rows":18,"action":"Excluded - cannot be trusted"},{"table_name":"applications","check_name":"Monthly rent > \u00a325,000 (likely pence typed as pounds)","failing_rows":7,"action":"Excluded - ambiguous, raised with data owner"},{"table_name":"applications","check_name":"Region label not in standard list","failing_rows":141,"action":"Standardised via mapping (trim, case, abbreviations)"},{"table_name":"referencing","check_name":"Completed before started (clock/timezone bug)","failing_rows":40,"action":"Duration set to NULL; excluded from turnaround KPIs"},{"table_name":"referencing","check_name":"Reference without matching application","failing_rows":0,"action":"Would be excluded (orphan check)"},{"table_name":"tenancies","check_name":"Deposit above 5 weeks rent (Tenant Fees Act cap)","failing_rows":0,"action":"Compliance flag - none expected"},{"table_name":"rent_payments","check_name":"Payment due after data extract date","failing_rows":0,"action":"Would be excluded"},{"table_name":"rent_payments","check_name":"Status Late but days_late missing","failing_rows":0,"action":"Would be investigated"}],"tests":[{"check":"No duplicate application_id after cleaning","passed":true},{"check":"All regions standardised to the 11 ONS regions","passed":true},{"check":"No non-positive rents in staging","passed":true},{"check":"No negative referencing turnaround","passed":true},{"check":"Funnel only ever narrows","passed":true},{"check":"Monthly applications reconcile to fact table","passed":true},{"check":"Every tenancy links to a passed reference","passed":true},{"check":"Deposits within 5-week legal cap","passed":true},{"check":"Model beats random on unseen (later) data: AUC > 0.6","passed":true}],"model":{"train_rows":7364,"test_rows":4941,"train_period":"Jan 2024 - Jun 2025","test_period":"Jul 2025 - Apr 2026","base_rate":0.04148957700870269,"auc":0.7578717246209624,"auc_ratio_only":0.7277207275873435,"auc_gbm":0.7441233726104153,"brier":0.03767321783599127,"rule_share_flagged":0.22647237401335762,"rule_capture":0.5463414634146342,"rule_precision":0.10008936550491511,"model_capture":0.5853658536585366,"model_precision":0.10723860589812333,"lift":[{"decile":1,"tenancies":494,"actual_rate":0.1720647773279352,"predicted_rate":0.17387162869398765},{"decile":2,"tenancies":494,"actual_rate":0.06072874493927125,"predicted_rate":0.06041232716196628},{"decile":3,"tenancies":494,"actual_rate":0.03441295546558704,"predicted_rate":0.04396668488247868},{"decile":4,"tenancies":494,"actual_rate":0.0465587044534413,"predicted_rate":0.03701219253682618},{"decile":5,"tenancies":494,"actual_rate":0.04048582995951417,"predicted_rate":0.03075072207905141},{"decile":6,"tenancies":494,"actual_rate":0.010121457489878543,"predicted_rate":0.025823455928408325},{"decile":7,"tenancies":494,"actual_rate":0.012145748987854251,"predicted_rate":0.021786677166059497},{"decile":8,"tenancies":494,"actual_rate":0.01417004048582996,"predicted_rate":0.018162552984025856},{"decile":9,"tenancies":494,"actual_rate":0.016194331983805668,"predicted_rate":0.013983666707858161},{"decile":10,"tenancies":495,"actual_rate":0.00808080808080808,"predicted_rate":0.007340429591801834}],"odds_ratios":[{"feature":"reference outcome Pass with conditions","odds_ratio":2.7294117413874606},{"feature":"rent to income capped","odds_ratio":2.4519598590600924},{"feature":"employment type Self-employed","odds_ratio":1.6630144232751933},{"feature":"monthly rent","odds_ratio":1.0081575430861174},{"feature":"reference outcome Pass with guarantor","odds_ratio":0.8046061739214911},{"feature":"employment type Employed","odds_ratio":0.7666201117073214},{"feature":"employment type Student","odds_ratio":0.33310479984162067},{"feature":"has guarantor True","odds_ratio":0.2602536915458133}]}};
+
+// ---------- helpers
+const $ = (s) => document.querySelector(s);
+const fmtInt = (v) => v == null ? "–" : Math.round(v).toLocaleString("en-GB");
+const fmtPct = (v, d = 0) => v == null ? "–" : (v * 100).toFixed(d) + "%";
+const fmtGBP = (v) => v == null ? "–" : "£" + Math.round(v).toLocaleString("en-GB");
+const fmtH = (v) => v == null ? "–" : v.toFixed(1) + "h";
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const mLabel = (s) => { const d = new Date(s); return MONTHS[d.getUTCMonth()] + " " + String(d.getUTCFullYear()).slice(2); };
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+const tip = $("#tip");
+function showTip(html, ev) { tip.innerHTML = html; tip.style.opacity = 1; const x = Math.min(ev.clientX + 14, innerWidth - 250); tip.style.left = x + "px"; tip.style.top = (ev.clientY + 14) + "px"; }
+function hideTip() { tip.style.opacity = 0; }
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
+
+// ---------- line chart: series [{values, color, dash, name}], labels, fmt
+function lineChart(target, { labels, series, fmt, yMin = 0, mark = {}, height = 230 }) {
+  const W = 560, H = height, m = { t: 12, r: 14, b: 26, l: 46 };
+  const all = series.flatMap(s => s.values.filter(v => v != null));
+  const lo = yMin === "auto" ? Math.min(...all) * 0.92 : yMin;
+  const hi = niceMax(Math.max(...all) * 1.05);
+  const x = (i) => m.l + (i / (labels.length - 1)) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4;
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css("--grid"), "stroke-width": 1 }, svg);
+    el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v);
+  }
+  labels.forEach((l, i) => { if (i % 6 === 0 || i === labels.length - 1) el("text", { x: x(i), y: H - 6, "text-anchor": "middle" }, svg).textContent = mLabel(l); });
+  if (mark.from != null) {  // shaded band e.g. process change
+    el("rect", { x: x(mark.from), y: m.t, width: x(labels.length - 1) - x(mark.from), height: H - m.t - m.b, fill: css("--accent-soft"), opacity: 0.6 }, svg);
+    el("text", { x: x(mark.from) + 6, y: m.t + 13, class: "lbl" }, svg).textContent = mark.label;
+  }
+  series.forEach(s => {
+    let d = ""; s.values.forEach((v, i) => { if (v == null) return; d += (d ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1); });
+    if (s.area) el("path", { d: d + `L${x(s.values.length - 1)},${y(lo)}L${x(0)},${y(lo)}Z`, fill: s.color, opacity: 0.1 }, svg);
+    el("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-dasharray": s.dash ? "4 3" : "none", "stroke-linejoin": "round" }, svg);
+    const li = s.values.length - 1;
+    if (!s.dash) el("circle", { cx: x(li), cy: y(s.values[li]), r: 4, fill: s.color, stroke: css("--panel"), "stroke-width": 2 }, svg);
+  });
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--ink-3"), "stroke-width": 1, opacity: 0 }, svg);
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg);
+  hit.addEventListener("mousemove", (ev) => {
+    const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) * W / r.width;
+    const i = Math.max(0, Math.min(labels.length - 1, Math.round((px - m.l) / (W - m.l - m.r) * (labels.length - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", 0.5);
+    showTip(`${mLabel(labels[i])}<br>` + series.map(s => `${s.name}: <b>${s.values[i] == null ? "–" : fmt(s.values[i])}</b>`).join("<br>"), ev);
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("opacity", 0); hideTip(); });
+  $(target).appendChild(svg);
+}
+
+// ---------- horizontal bars: rows [{label, value, color, tip, note}]
+function barH(target, { rows, fmt, max, refLine }) {
+  const W = 560, rowH = 30, m = { t: 6, r: 64, b: 6, l: 170 };
+  const H = m.t + m.b + rows.length * rowH;
+  const hi = max || niceMax(Math.max(...rows.map(r => r.value)));
+  const x = (v) => m.l + (v / hi) * (W - m.l - m.r);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  rows.forEach((r, i) => {
+    const yy = m.t + i * rowH;
+    el("text", { x: m.l - 10, y: yy + rowH / 2 + 4, "text-anchor": "end", class: "lbl" }, svg).textContent = r.label;
+    const w = Math.max(2, x(r.value) - m.l);
+    const g = el("g", {}, svg);
+    el("rect", { x: m.l, y: yy + 7, width: w, height: rowH - 14, rx: 3, fill: r.color || css("--series-1") }, g);
+    el("text", { x: m.l + w + 6, y: yy + rowH / 2 + 4, class: "val-lbl" }, g).textContent = fmt(r.value) + (r.note ? " " + r.note : "");
+    const hit = el("rect", { x: 0, y: yy, width: W, height: rowH, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", (ev) => showTip(r.tip || `${r.label}: <b>${fmt(r.value)}</b>`, ev));
+    hit.addEventListener("mouseleave", hideTip);
+  });
+  if (refLine != null) {
+    el("line", { x1: x(refLine.v), x2: x(refLine.v), y1: 0, y2: H, stroke: css("--ink-3"), "stroke-dasharray": "3 3" }, svg);
+  }
+  $(target).appendChild(svg);
+}
+
+// ---------- column chart with an optional marker per column
+function columns(target, { labels, values, markers, fmt, height = 220 }) {
+  const W = 560, H = height, m = { t: 12, r: 10, b: 26, l: 46 };
+  const hi = niceMax(Math.max(...values, ...(markers || [0])) * 1.05);
+  const n = labels.length, bw = (W - m.l - m.r) / n;
+  const y = (v) => m.t + (1 - v / hi) * (H - m.t - m.b);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  for (let k = 0; k <= 4; k++) { const v = hi * k / 4; el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css("--grid") }, svg); el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v); }
+  values.forEach((v, i) => {
+    const x0 = m.l + i * bw;
+    el("rect", { x: x0 + 3, y: y(v), width: bw - 6, height: Math.max(1, y(0) - y(v)), rx: 3, fill: css("--series-1") }, svg);
+    if (markers) el("line", { x1: x0 + 3, x2: x0 + bw - 3, y1: y(markers[i]), y2: y(markers[i]), stroke: css("--series-2"), "stroke-width": 2.5, "stroke-dasharray": "4 2" }, svg);
+    el("text", { x: x0 + bw / 2, y: H - 8, "text-anchor": "middle" }, svg).textContent = labels[i];
+    const hit = el("rect", { x: x0, y: m.t, width: bw, height: H - m.t - m.b, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", (ev) => showTip(`Decile ${labels[i]}<br>Actual: <b>${fmt(v)}</b>` + (markers ? `<br>Predicted: <b>${fmt(markers[i])}</b>` : ""), ev));
+    hit.addEventListener("mouseleave", hideTip);
+  });
+  $(target).appendChild(svg);
+}
+
+// ---------- sortable table
+function table(target, cols, rows, sortKey, desc = true) {
+  const t = $(target); let key = sortKey, dir = desc ? -1 : 1;
+  function render() {
+    const sorted = [...rows].sort((a, b) => ((a[key] ?? -Infinity) > (b[key] ?? -Infinity) ? 1 : -1) * dir);
+    t.innerHTML = "<thead><tr>" + cols.map(c => `<th class="${c.n ? "n " : ""}${c.sort !== false ? "sortable" : ""}" data-k="${c.k}" tabindex="${c.sort !== false ? 0 : -1}" ${c.k === key ? `aria-sort="${dir < 0 ? "descending" : "ascending"}"` : ""}>${c.h}</th>`).join("") + "</tr></thead><tbody>" +
+      sorted.map(r => "<tr>" + cols.map(c => `<td class="${c.n ? "n" : ""}">${c.f ? c.f(r[c.k], r) : (r[c.k] ?? "–")}</td>`).join("") + "</tr>").join("") + "</tbody>";
+    t.querySelectorAll("th.sortable").forEach(th => {
+      const go = () => { const k = th.dataset.k; if (k === key) dir = -dir; else { key = k; dir = -1; } render(); };
+      th.addEventListener("click", go); th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+  }
+  render();
+}
+
+// ---------- build page
+function build() {
+  const D = DATA, H = D.headline, M = D.monthly, mod = D.model;
+  $("#h-apps").textContent = fmtInt(H.applications); $("#h-ten").textContent = fmtInt(H.tenancies);
+  $("#h-pay").textContent = fmtInt(H.payments); $("#h-ag").textContent = H.agencies;
+  $("#h-to").textContent = D.data_to.replace(/^\d+ /, ""); $("#h-tests").textContent = D.tests.filter(t => t.passed).length + "/" + D.tests.length;
+  $("#gen").textContent = D.generated;
+
+  // tiles: last 12 full months vs prior 12
+  const last = M.slice(-12), prior = M.slice(-24, -12);
+  const sum = (a, k) => a.reduce((s, r) => s + (r[k] || 0), 0);
+  const avg = (a, k) => sum(a, k) / a.filter(r => r[k] != null).length;
+  const wavg = (a, k, w) => a.reduce((s, r) => s + r[k] * r[w], 0) / sum(a, w);
+  const tiles = [
+    { l: "Applications", v: sum(last, "applications"), p: sum(prior, "applications"), f: fmtInt, goodUp: true },
+    { l: "Median referencing time", v: avg(last, "median_turnaround_h"), p: avg(prior, "median_turnaround_h"), f: fmtH, goodUp: false },
+    { l: "Referencing pass rate", v: wavg(last, "pass_rate", "applications"), p: wavg(prior, "pass_rate", "applications"), f: (v) => fmtPct(v, 1), goodUp: true, pts: true },
+    { l: "Rent payments late or missed", v: avg(last, "late_payment_rate"), p: avg(prior, "late_payment_rate"), f: (v) => fmtPct(v, 1), goodUp: false, pts: true },
+  ];
+  $("#tiles").innerHTML = tiles.map(t => {
+    const ch = t.pts ? (t.v - t.p) * 100 : (t.v / t.p - 1) * 100;
+    const good = (ch > 0) === t.goodUp;
+    const txt = t.pts ? `${ch > 0 ? "+" : ""}${ch.toFixed(1)} pts` : `${ch > 0 ? "+" : ""}${ch.toFixed(1)}%`;
+    return `<div class="tile"><div class="eyebrow">${t.l}</div><div class="val">${t.f(t.v)}</div><div class="delta"><span class="${Math.abs(ch) < 0.3 ? "" : good ? "up-good" : "up-bad"}">${ch > 0 ? "▲" : "▼"} ${txt}</span> vs prior 12 months</div></div>`;
+  }).join("");
+
+  const labels = M.map(r => r.month);
+  lineChart("#c-apps", { labels, fmt: fmtInt, series: [{ name: "Applications", values: M.map(r => r.applications), color: css("--series-1"), area: true }] });
+  const chg = labels.findIndex(l => l.startsWith("2025-06"));
+  lineChart("#c-turn", { labels, fmt: (v) => v.toFixed(0) + "h", mark: { from: chg, label: "After process change (Jun 25)" },
+    series: [{ name: "90th percentile", values: M.map(r => r.p90_turnaround_h), color: css("--ink-3"), dash: true },
+             { name: "Median", values: M.map(r => r.median_turnaround_h), color: css("--series-1") }] });
+
+  // insights (computed, not hard-coded)
+  const before = M.filter(r => r.month >= "2024-06" && r.month < "2025-06" && !r.month.startsWith("2024-12"));
+  const after = M.filter(r => r.month >= "2025-06" && !r.month.startsWith("2025-12"));
+  const tb = avg(before, "median_turnaround_h"), ta = avg(after, "median_turnaround_h");
+  const decs = M.filter(r => r.month.slice(5, 7) === "12"), nonDec = M.filter(r => r.month.slice(5, 7) !== "12");
+  const decUp = avg(decs, "median_turnaround_h") / avg(nonDec, "median_turnaround_h") - 1;
+  const jan = M.filter(r => r.month.slice(5, 7) === "01"), notJan = M.filter(r => r.month.slice(5, 7) !== "01" && r.month >= "2024-03");
+  const janUp = avg(jan, "late_payment_rate") - avg(notJan, "late_payment_rate");
+  const seg = Object.fromEntries(D.segment.map(s => [s.employment_type, s]));
+  const lastM = M[M.length - 1];
+  const topDec = mod.lift[0];
+  $("#insights").innerHTML = [
+    `Median referencing time fell from <b>${fmtH(tb)}</b> to <b>${fmtH(ta)}</b> (${fmtPct(ta / tb - 1)}) after the June 2025 process change, excluding Decembers.`,
+    `December is the slowest month: turnaround runs <b>${fmtPct(decUp)}</b> above other months, so agents need clear expectations or extra capacity over Christmas.`,
+    `Self-employed applicants take <b>${fmtH(seg["Self-employed"].median_turnaround_h)}</b> to reference against <b>${fmtH(seg["Employed"].median_turnaround_h)}</b> for employed applicants: income evidence is the bottleneck.`,
+    `Late and missed rent payments jump by <b>${(janUp * 100).toFixed(1)} pts</b> every January, after Christmas spending.`,
+    `The highest-risk tenth of new tenancies goes into early arrears at <b>${fmtPct(topDec.actual_rate)}</b>, ${(topDec.actual_rate / mod.base_rate).toFixed(1)}× the average of ${fmtPct(mod.base_rate, 1)}.`,
+    `${mLabel(lastM.month)} shows only <b>${fmtPct(lastM.conversion_rate)}</b> conversion. This is not a real drop: recent applications have not had time to become tenancies yet (right-censoring).`,
+  ].map(s => `<p class="insight">${s}</p>`).join("");
+
+  // funnel
+  const f0 = D.funnel[0].n;
+  barH("#c-funnel", { fmt: (v) => fmtPct(v / f0), max: f0, rows: D.funnel.map((s, i) => ({ label: s.stage, value: s.n, note: `(${fmtInt(s.n)})`,
+    tip: `${s.stage}: <b>${fmtInt(s.n)}</b>` + (i ? `<br>Step conversion: <b>${fmtPct(s.n / D.funnel[i - 1].n)}</b>` : "") })) });
+  barH("#c-seg", { fmt: fmtH, rows: D.segment.map(s => ({ label: s.employment_type, value: s.median_turnaround_h,
+    tip: `${s.employment_type}<br>Median: <b>${fmtH(s.median_turnaround_h)}</b><br>Pass rate: <b>${fmtPct(s.pass_rate)}</b><br>Applications: <b>${fmtInt(s.applications)}</b>` })) });
+  $("#seg-note").textContent = `Pass rates: ` + D.segment.map(s => `${s.employment_type} ${fmtPct(s.pass_rate)}`).join(" · ") + `. Students rely on guarantors, which adds a second reference.`;
+
+  // rent table
+  const maxRent = Math.max(...D.region_rent.map(r => r.median_rent_last12m));
+  table("#t-rent", [
+    { k: "region", h: "Region", sort: true },
+    { k: "median_rent_last12m", h: "Median rent", n: true, f: (v) => `<span class="bar-cell">${fmtGBP(v)}<i style="width:${(v / maxRent * 60).toFixed(0)}px"></i></span>` },
+    { k: "yoy", h: "YoY", n: true, f: (v, r) => r.lets_last12m < 100 ? `<span class="chip warn" title="Fewer than 100 lets"><span class="dot"></span>${fmtPct(v, 1)}</span>` : `${v > 0 ? "+" : ""}${fmtPct(v, 1)}` },
+    { k: "lets_last12m", h: "Lets", n: true, f: fmtInt },
+  ], D.region_rent, "median_rent_last12m");
+
+  const regions = [...new Set(D.region_quarterly.map(r => r.region))].sort();
+  const quarters = [...new Set(D.region_quarterly.map(r => r.quarter))].sort();
+  const overall = quarters.map(q => { const rs = D.region_quarterly.filter(r => r.quarter === q); return rs.reduce((s, r) => s + r.median_rent * r.lets, 0) / rs.reduce((s, r) => s + r.lets, 0); });
+  const pick = $("#region-pick");
+  pick.innerHTML = regions.map(r => `<option${r === "London" ? " selected" : ""}>${r}</option>`).join("");
+  let saved; try { saved = localStorage.getItem("lp-region"); } catch (e) {}
+  if (saved && regions.includes(saved)) pick.value = saved;
+  const drawRent = () => {
+    $("#c-rentq").innerHTML = ""; $("#lg-region").textContent = pick.value;
+    const vals = quarters.map(q => (D.region_quarterly.find(r => r.region === pick.value && r.quarter === q) || {}).median_rent ?? null);
+    lineChart("#c-rentq", { labels: quarters.map(q => q + "-01"), fmt: fmtGBP, yMin: "auto", height: 250,
+      series: [{ name: "All regions (weighted)", values: overall, color: css("--ink-3"), dash: true }, { name: pick.value, values: vals, color: css("--series-1") }] });
+  };
+  pick.onchange = () => { try { localStorage.setItem("lp-region", pick.value); } catch (e) {} drawRent(); };
+  drawRent();
+
+  // affordability
+  const bandLbl = (b) => b.replace(/^\d\. /, "").replace(" (30x rule limit)", "");
+  barH("#c-afford", { fmt: (v) => fmtPct(v, 1), rows: D.affordability.map(a => ({ label: bandLbl(a.rent_to_income_band), value: a.early_arrears_rate,
+    color: a.rent_to_income_band >= "5" ? css("--series-2") : css("--series-1"),
+    tip: `${bandLbl(a.rent_to_income_band)} of income<br>Early arrears: <b>${fmtPct(a.early_arrears_rate, 1)}</b><br>Tenancies: <b>${fmtInt(a.tenancies)}</b>` })) });
+
+  // model
+  $("#m-period").textContent = `Trained ${mod.train_period}, tested ${mod.test_period}`;
+  $("#m-compare").innerHTML = `
+    <div><span class="eyebrow">30x rule</span><span class="big">${fmtPct(mod.rule_capture)}</span><span class="small">of early arrears caught, flagging ${fmtPct(mod.rule_share_flagged)} of tenancies</span></div>
+    <div><span class="eyebrow">Risk model, same volume</span><span class="big">${fmtPct(mod.model_capture)}</span><span class="small">of early arrears caught, flagging the same ${fmtPct(mod.rule_share_flagged)}</span></div>`;
+  $("#m-stats").innerHTML = [["Test AUC", mod.auc.toFixed(3)], ["Ratio alone", mod.auc_ratio_only.toFixed(3)], ["Gradient boosting", mod.auc_gbm.toFixed(3)]]
+    .map(([l, v]) => `<div><div class="eyebrow">${l}</div><div class="num" style="font-size:1.15rem">${v}</div></div>`).join("");
+  $("#m-note").innerHTML = `The model adds a modest gain over the rule, mainly by spotting applicants who "pass with conditions" or are self-employed, and by giving guarantors credit. Recommendation: keep the 30x rule for decisions and use the score to prioritise early, supportive contact. Tested on ${fmtInt(mod.test_rows)} later tenancies the model never saw.`;
+  columns("#c-lift", { labels: mod.lift.map(r => String(r.decile)), values: mod.lift.map(r => r.actual_rate), markers: mod.lift.map(r => r.predicted_rate), fmt: (v) => fmtPct(v, 0) });
+  const nice = (f) => f.replace("rent to income capped", "Rent-to-income ratio (per SD)").replace("monthly rent", "Monthly rent (per SD)")
+    .replace("reference outcome ", "Reference: ").replace("employment type ", "Employment: ").replace("has guarantor True", "Has guarantor");
+  barH("#c-odds", { fmt: (v) => v.toFixed(2) + "×", refLine: { v: 1 }, rows: mod.odds_ratios.map(o => ({ label: nice(o.feature), value: o.odds_ratio,
+    color: o.odds_ratio >= 1 ? css("--series-2") : css("--series-1") })) });
+
+  // data quality
+  table("#t-dq", [
+    { k: "table_name", h: "Table", f: (v) => `<span class="mono">${v}</span>` },
+    { k: "check_name", h: "Check", sort: false },
+    { k: "failing_rows", h: "Rows", n: true, f: (v) => v ? `<span class="chip ${v > 300 ? "bad" : "warn"}"><span class="dot"></span>${fmtInt(v)}</span>` : `<span class="chip good"><span class="dot"></span>0</span>` },
+    { k: "action", h: "Action taken", sort: false },
+  ], D.dq, "failing_rows");
+  $("#tests").innerHTML = D.tests.map(t => `<li>${t.check}</li>`).join("");
+
+  // agencies
+  const maxConv = Math.max(...D.agency.map(a => a.conversion_rate));
+  table("#t-agency", [
+    { k: "agency_name", h: "Agent" }, { k: "region", h: "Region" },
+    { k: "applications", h: "Applications", n: true, f: fmtInt },
+    { k: "median_turnaround_h", h: "Median referencing", n: true, f: fmtH },
+    { k: "conversion_rate", h: "Conversion", n: true, f: (v) => `<span class="bar-cell">${fmtPct(v)}<i style="width:${(v / maxConv * 50).toFixed(0)}px"></i></span>` },
+    { k: "early_arrears_rate", h: "Early arrears", n: true, f: (v) => fmtPct(v, 1) },
+  ], D.agency, "conversion_rate");
+}
+
+let built = false;
+function rebuild() { document.querySelectorAll(".chart").forEach(c => c.innerHTML = ""); build(); }
+if (DATA) { build(); built = true; }
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => built && rebuild());
+new MutationObserver(() => built && rebuild()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
