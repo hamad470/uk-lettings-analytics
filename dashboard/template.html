@@ -62,6 +62,8 @@ header.top .wrap { padding-block: 28px 22px; display: grid; gap: 14px; }
 .meta { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--ink); border: 1px solid var(--line); white-space: nowrap; }
 .chip.warn { background: var(--warn-soft); }
+a.chip { text-decoration: none; color: var(--accent); font-weight: 500; }
+a.chip:hover { border-color: var(--accent); }
 .chip.bad { background: var(--bad-soft); }
 .chip.good { background: var(--good-soft); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
@@ -157,6 +159,7 @@ html { scroll-behavior: smooth; }
       <span class="chip">Python · DuckDB SQL · scikit-learn</span>
       <span class="chip good"><span class="dot"></span><span id="h-tests">–</span> automated checks passing</span>
       <span class="chip warn"><span class="dot"></span>Synthetic data, realistic by design (see Method)</span>
+      <a class="chip" href="https://github.com/hamad470/uk-lettings-analytics" target="_blank" rel="noopener">View code on GitHub ↗</a>
     </div>
   </div>
 </header>
@@ -224,7 +227,7 @@ html { scroll-behavior: smooth; }
       <div class="panel"><div class="panel-head"><h3>Actual vs predicted arrears, by risk decile</h3><span class="sub">Unseen test tenancies; 1 = highest risk</span></div>
         <div class="legend"><span style="--c:var(--series-1)">Actual rate</span><span class="dash" style="--c:var(--series-2)">Predicted rate</span></div>
         <div class="chart" id="c-lift"></div></div>
-      <div class="panel"><div class="panel-head"><h3>What drives the score</h3><span class="sub">Odds ratio; above 1 raises risk</span></div><div class="chart" id="c-odds"></div>
+      <div class="panel"><div class="panel-head"><h3>What drives the score</h3><span class="sub">Odds ratio (log scale); right of 1× raises risk</span></div><div class="chart" id="c-odds"></div>
         <p class="small">Region was left out of the model on purpose: its effects were unstable between periods, and location can act as a proxy for protected characteristics.</p></div>
     </div>
   </section>
@@ -258,7 +261,7 @@ html { scroll-behavior: smooth; }
   </section>
 </main>
 </div>
-<footer><div class="wrap"><span>Lettings Pulse · built by __AUTHOR__</span><span>Generated <span id="gen">–</span> · synthetic data for demonstration</span></div></footer>
+<footer><div class="wrap"><span>Lettings Pulse · built by __AUTHOR__ · <a href="https://github.com/hamad470/uk-lettings-analytics" target="_blank" rel="noopener">source code</a></span><span>Generated <span id="gen">–</span> · synthetic data for demonstration</span></div></footer>
 <div id="tip" role="tooltip"></div>
 
 <script>
@@ -294,7 +297,8 @@ function lineChart(target, { labels, series, fmt, yMin = 0, mark = {}, height = 
     el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css("--grid"), "stroke-width": 1 }, svg);
     el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v);
   }
-  labels.forEach((l, i) => { if (i % 6 === 0 || i === labels.length - 1) el("text", { x: x(i), y: H - 6, "text-anchor": "middle" }, svg).textContent = mLabel(l); });
+  const step = labels.length > 16 ? 6 : 2, lastI = labels.length - 1;
+  labels.forEach((l, i) => { if ((i % step === 0 && lastI - i >= step / 2) || i === lastI) el("text", { x: x(i), y: H - 6, "text-anchor": "middle" }, svg).textContent = mLabel(l); });
   if (mark.from != null) {  // shaded band e.g. process change
     el("rect", { x: x(mark.from), y: m.t, width: x(labels.length - 1) - x(mark.from), height: H - m.t - m.b, fill: css("--accent-soft"), opacity: 0.6 }, svg);
     el("text", { x: x(mark.from) + 6, y: m.t + 13, class: "lbl" }, svg).textContent = mark.label;
@@ -320,7 +324,7 @@ function lineChart(target, { labels, series, fmt, yMin = 0, mark = {}, height = 
 
 // ---------- horizontal bars: rows [{label, value, color, tip, note}]
 function barH(target, { rows, fmt, max, refLine }) {
-  const W = 560, rowH = 30, m = { t: 6, r: 64, b: 6, l: 170 };
+  const W = 560, rowH = 30, m = { t: 6, r: 64, b: 6, l: 196 };
   const H = m.t + m.b + rows.length * rowH;
   const hi = max || niceMax(Math.max(...rows.map(r => r.value)));
   const x = (v) => m.l + (v / hi) * (W - m.l - m.r);
@@ -339,6 +343,30 @@ function barH(target, { rows, fmt, max, refLine }) {
   if (refLine != null) {
     el("line", { x1: x(refLine.v), x2: x(refLine.v), y1: 0, y2: H, stroke: css("--ink-3"), "stroke-dasharray": "3 3" }, svg);
   }
+  $(target).appendChild(svg);
+}
+
+
+// ---------- odds ratios: diverging bars from 1x on a log scale
+function oddsChart(target, rows) {
+  const W = 560, rowH = 30, m = { t: 22, r: 18, b: 6, l: 196 };
+  const H = m.t + m.b + rows.length * rowH;
+  const lo = Math.log(0.2), hi = Math.log(5);
+  const x = (v) => m.l + (Math.log(v) - lo) / (hi - lo) * (W - m.l - m.r);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  [0.25, 0.5, 1, 2, 4].forEach(v => {
+    el("line", { x1: x(v), x2: x(v), y1: m.t - 4, y2: H - m.b, stroke: v === 1 ? css("--ink-3") : css("--grid"), "stroke-dasharray": v === 1 ? "3 3" : "none" }, svg);
+    el("text", { x: x(v), y: 12, "text-anchor": "middle" }, svg).textContent = v + "×";
+  });
+  rows.forEach((r, i) => {
+    const yy = m.t + i * rowH, v = r.value, up = v >= 1;
+    el("text", { x: m.l - 10, y: yy + rowH / 2 + 4, "text-anchor": "end", class: "lbl" }, svg).textContent = r.label;
+    const a = x(Math.min(v, 1)), b = x(Math.max(v, 1));
+    el("rect", { x: a, y: yy + 8, width: Math.max(2, b - a), height: rowH - 16, rx: 3, fill: up ? css("--series-2") : css("--series-1") }, svg);
+    const hit = el("rect", { x: 0, y: yy, width: W, height: rowH, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", (ev) => showTip(`${r.label}<br>Odds ratio: <b>${v.toFixed(2)}×</b><br>${up ? "Raises" : "Lowers"} the odds of early arrears`, ev));
+    hit.addEventListener("mouseleave", hideTip);
+  });
   $(target).appendChild(svg);
 }
 
@@ -480,8 +508,7 @@ function build() {
   columns("#c-lift", { labels: mod.lift.map(r => String(r.decile)), values: mod.lift.map(r => r.actual_rate), markers: mod.lift.map(r => r.predicted_rate), fmt: (v) => fmtPct(v, 0) });
   const nice = (f) => f.replace("rent to income capped", "Rent-to-income ratio (per SD)").replace("monthly rent", "Monthly rent (per SD)")
     .replace("reference outcome ", "Reference: ").replace("employment type ", "Employment: ").replace("has guarantor True", "Has guarantor");
-  barH("#c-odds", { fmt: (v) => v.toFixed(2) + "×", refLine: { v: 1 }, rows: mod.odds_ratios.map(o => ({ label: nice(o.feature), value: o.odds_ratio,
-    color: o.odds_ratio >= 1 ? css("--series-2") : css("--series-1") })) });
+  oddsChart("#c-odds", mod.odds_ratios.map(o => ({ label: nice(o.feature), value: o.odds_ratio })));
 
   // data quality
   table("#t-dq", [
